@@ -1,76 +1,95 @@
-import os
-from PIL import Image
 import pytesseract
-import pandas as pd
-import re
+from PIL import Image
+import os
+from openpyxl import Workbook
+from tqdm import tqdm
 
-# Configure pytesseract to use the correct language data
-pytesseract.pytesseract.tesseract_cmd = r'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+# Define the path to the tesseract executable
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'  
 
-# The lang parameter is set to handle a variety of languages.
-ocr_lang = 'eng+spa+deu+fra+ita+por+rus+chi_sim+jpn'
+# Define the directory containing screenshots
+screenshot_dir = 'C:\\Users\\dnai7\\PycharmProjects\\pythonProject1\\Taulukko'  
 
-# Define the directory path that contains the image files
-directory_path = 'C:\\Users\\dnai7\\PycharmProjects\\pythonProject1\\pics'
+# Define the output Excel file
+output_excel = 'Rise_of_Castles_Units.xlsx'
 
-# Define the function to extract values from a single image
-def extract_values_from_image(image_path, lang=ocr_lang):
-    # Open the image file
-    img = Image.open(image_path)
 
-    # Use tesseract to do OCR on the image with the specified language
-    text = pytesseract.image_to_string(img, lang=lang)
+# Function to extract data from a single screenshot
+def extract_data_from_screenshot(image_path):
+    image = Image.open(image_path)
+    text = pytesseract.image_to_string(image)
 
-    # Print the OCR result for debugging
-    print(f"OCR result for {os.path.basename(image_path)}:\n{text}")
+    lines = text.split('\n')
+    data = {}
+    current_header = None
 
-    # Extract the name and values
-    name_pattern = re.compile(r'\[Cnt\]\s(.*?)[\r\n]+', re.DOTALL)
-    name_match = name_pattern.search(text)
-    name = name_match.group(1).strip() if name_match else "Name not found"
+    headers = [
+        'Name', 'Season points', 'Declaration points', 'Stone donations', 'Total war joined',
+        'Total war demolition value', 'Demolition value in Eden', 'Merit',
+        'Guild contribution exp', 'Wonder cp', 'Occupy enemy territory'
+    ]
 
-    # Prepare dictionary for extracted values
-    data = {
-        'name': name,
-        'Season points': 0,
-        'Demolition Value in Eden': 0,
-        'Merit': 0,
-        'Wonder CP': 0,
-        'Occupy Enemy Territory': 0
-    }
+    for line in lines:
+        if line.strip():  # Skip empty lines
+            parts = line.split(':')
+            if len(parts) == 2:
+                key, value = parts
+                key = key.strip().lower()
+                value = value.strip().replace(',', '').replace('.', '')  # Remove commas and periods for number parsing
+                if 'name' in key:
+                    current_header = 'Name'
+                elif 'season points' in key:
+                    current_header = 'Season points'
+                elif 'declaration point' in key:
+                    current_header = 'Declaration points'
+                elif 'stone donation' in key:
+                    current_header = 'Stone donations'
+                elif 'total war joined' in key:
+                    current_header = 'Total war joined'
+                elif 'total war demolition value' in key:
+                    current_header = 'Total war demolition value'
+                elif 'demolition value in eden' in key:
+                    current_header = 'Demolition value in Eden'
+                elif 'merit' in key:
+                    current_header = 'Merit'
+                elif 'guild contribution exp' in key:
+                    current_header = 'Guild contribution exp'
+                elif 'wonder cp' in key:
+                    current_header = 'Wonder cp'
+                elif 'occupy enemy territory' in key:
+                    current_header = 'Occupy enemy territory'
 
-    # Match labels to values using proximity based matching
-    labels = ['Season points', 'Demolition Value in Eden', 'Merit', 'Wonder CP:', 'Occupy Enemy Territory']
-    for label in labels:
-        pattern = re.compile(rf"{re.escape(label)}\s*(?:\:)?\s*(\d[\d,]*)")
-        match = pattern.search(text)
-        if match:
-            # Replace commas and cast to int
-            data[label] = int(match.group(1).replace(',', ''))
+                if current_header:
+                    data[current_header] = value
 
-    return data
+    return [data.get(header, '') for header in headers]
 
-# List to hold data for each image
-data_list = []
 
-# Loop over all the image files in the directory
-for filename in os.listdir(directory_path):
-    if filename.endswith('.png'):
-        # Construct the full file path
-        file_path = os.path.join(directory_path, filename)
-        # Extract the data from the image
-        data = extract_values_from_image(file_path)
-        # Append the data to the list
-        data_list.append(data)
-        print(f"Data extracted for {filename}: {data}")  # Log extracted data
+# Create a new Excel workbook and sheet
+wb = Workbook()
+ws = wb.active
+ws.title = "Units Data"
 
-# Create a DataFrame with all the extracted data
-df = pd.DataFrame(data_list)
+# Add headers
+headers = [
+    'Name', 'Season points', 'Declaration points', 'Stone donations', 'Total war joined',
+    'Total war demolition value', 'Demolition value in Eden', 'Merit',
+    'Guild contribution exp', 'Wonder cp', 'Occupy enemy territory'
+]
+ws.append(headers)
 
-# Define the Excel file path you want to save to
-excel_file_path = 'C:\\Users\\dnai7\\PycharmProjects\\pythonProject1\\extracted_game_data_all.xlsx'
+# Get list of screenshot files
+files = [f for f in os.listdir(screenshot_dir) if f.endswith('.jpg') or f.endswith('.png')]
 
-# Save the DataFrame to an Excel file with the correct data
-df.to_excel(excel_file_path, index=False)
+# Process each screenshot in the directory with a progress bar
+for filename in tqdm(files, desc="Processing screenshots"):
+    image_path = os.path.join(screenshot_dir, filename)
+    data = extract_data_from_screenshot(image_path)
+    ws.append(data)
 
-print(f"All data extracted and saved to {excel_file_path}")
+# Save the workbook
+try:
+    wb.save(output_excel)
+    print(f'Data extracted and saved to {output_excel}')
+except Exception as e:
+    print(f'Error saving the workbook: {e}')
